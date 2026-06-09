@@ -16,7 +16,7 @@ Testing various strategies to handle concurrent writes and deadlock prevention i
 | Test 4 | REPLACE INTO (no locks) | ❌ FAILED | 12 | 0.94s |
 | Test 5 | REPLACE INTO + table locks | ✅ PASSED | 0 | 2.35s |
 | Test 6 | REPEATABLE READ + retry logic | ✅ PASSED | 0 | 0.48s |
-| Test 7 | Single-threaded baseline | ✅ PASSED | 0 | 0.05s (0.70s × 14 threads) |
+| Test 7 | Single-threaded baseline | ✅ PASSED | 0 | 0.05s |
 
 ## Root Cause Analysis
 
@@ -48,6 +48,12 @@ It is the default isolation level for many relational databases *(NOT DESIGNED B
 - Performance: 0.48s (faster than explicit locking, graceful degradation)
 - Concurrency benefit: 0.48s concurrent vs 0.70s sequential (1.5x faster)
 
+**Option 7: Single-threaded Baseline**
+- Run with 1 thread instead of 14 (Test 7)
+- Eliminates concurrency entirely, zero deadlocks by design
+- Performance: 0.05s per thread (0.70s total when multiplied by 14)
+- Trade-off: No concurrency benefit; serialized execution
+
 ## How to Run
 
 ```bash
@@ -65,12 +71,12 @@ The test will:
 
 ## Test Configuration
 
-- **Concurrency:** 14 threads
+- **Concurrency:** 14 threads (Tests 1-6), 1 thread (Test 7 baseline)
 - **Batch size:** 100 rows per write
 - **Total operations:** 1,400 batch writes (14 threads × ~100 batches each)
 - **Isolation levels:** REPEATABLE READ, READ COMMITTED
-- **Locking strategies:** None, table-level, retry backoff
-- **Baseline:** Single-threaded sequential execution (0.05s per thread = 0.70s total)
+- **Locking strategies:** None, table-level, retry backoff, single-threaded
+- **Baseline:** Single-threaded sequential execution (Test 7: 0.05s per thread = 0.70s total)
 
 ## GitHub Actions Workflow
 
