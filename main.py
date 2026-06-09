@@ -47,6 +47,13 @@ def worker(thread_id, isolation_on):
         #cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         # https://forums.mysql.com/read.php?22,65113,65113#msg-65113 an actual hack answer WTF
         cursor.execute("LOCK TABLES data_table WRITE")
+        # Why this garbage hack works: https://dev.mysql.com/doc/refman/8.0/en/lock-tables.html#lock-tables-transaction-interaction
+        # It acquires an exclusive lock on the entire table before any operations
+        # All other threads block and wait for the lock to be released
+        # No row-level deadlock can occur because only one thread accesses the table at a time
+        # It's a blunt force solution: "if nobody else can touch it, nobody can fight over it"
+
+
     else:
         cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ")
     try:
