@@ -23,12 +23,10 @@ def setup_database():
     cursor.execute("DROP TABLE IF EXISTS data_table")
     cursor.execute("""
         CREATE TABLE data_table (
-            id BIGINT NOT NULL AUTO_INCREMENT,
             hash VARCHAR(64) DEFAULT NULL,
             job_id BIGINT DEFAULT NULL,
             row_id BIGINT DEFAULT NULL,
             date TIMESTAMP NULL DEFAULT NULL,
-            PRIMARY KEY (id),
             UNIQUE KEY row_id_idx (row_id)
         ) ENGINE=InnoDB
     """)
@@ -96,12 +94,12 @@ def worker(thread_id, lock_tables, use_idiot_code, isolation_level, max_retries)
         with results_lock:
             results_tracker.append(status)
 
-def run_test(name, lock_tables, use_idiot_code, isolation_level, max_retries):
+def run_test(name, lock_tables, use_idiot_code, isolation_level, max_retries, num_threads=14):
     global results_tracker
     results_tracker = []
     print(f"\n>>> Starting Test: {name}")
     
-    threads = [threading.Thread(target=worker, args=(i, lock_tables, use_idiot_code, isolation_level, max_retries)) for i in range(14)]
+    threads = [threading.Thread(target=worker, args=(i, lock_tables, use_idiot_code, isolation_level, max_retries)) for i in range(num_threads)]
     for t in threads: t.start()
     for t in threads: t.join()
     
@@ -127,18 +125,19 @@ if __name__ == "__main__":
     print("="*70)
     setup_database()
     tests = [
-        ("Test 1 (NORMAL RUN)", False, False, "REPEATABLE READ", 1),
-        ("Test 2 (TABLE LEVEL LOCKING)", True, False, "REPEATABLE READ", 1),
-        ("Test 3 (ISOLATION LEVEL READ COMMITTED)", False, False, "READ COMMITTED", 1),
-        ("Test 4 (REPLACE INTO, LOCK OFF)", False, True, "REPEATABLE READ", 1),
-        ("Test 5 (REPLACE INTO, LOCK ON)", True, True, "REPEATABLE READ", 1),
-        ("Test 6 (NORMAL RUN WITH 5 Retries)", False, False, "REPEATABLE READ", 5)
+        ("Test 1 (NORMAL RUN)", False, False, "REPEATABLE READ", 1, 15),
+        ("Test 2 (TABLE LEVEL LOCKING)", True, False, "REPEATABLE READ", 1, 15),
+        ("Test 3 (ISOLATION LEVEL READ COMMITTED)", False, False, "READ COMMITTED", 1, 15),
+        ("Test 4 (REPLACE INTO, LOCK OFF)", False, True, "REPEATABLE READ", 1, 15),
+        ("Test 5 (REPLACE INTO, LOCK ON)", True, True, "REPEATABLE READ", 1, 15),
+        ("Test 6 (NORMAL RUN WITH 5 Retries)", False, False, "REPEATABLE READ", 5, 15),
+        ("Test 7 (NORMAL RUN WITH 1 thread.  * this time by 14)", False, False, "REPEATABLE READ", 1, 1)
     ]
     
     results = []
-    for name, lock, idiot, iso, retries in tests:
+    for name, lock, idiot, iso, retries, num_threads in tests:
         start_time = time.time()
-        fails = run_test(name, lock, idiot, iso, retries)
+        fails = run_test(name, lock, idiot, iso, retries, num_threads)
         duration = time.time() - start_time
         results.append((name, duration, fails))
         print(f"--- {name} finished in {duration:.2f} seconds ---")
