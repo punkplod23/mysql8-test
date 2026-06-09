@@ -34,7 +34,7 @@ Testing various strategies to handle concurrent writes and deadlock prevention i
 - Performance: 0.41s (same speed as single-threaded, 100% reliable)
 - Concurrency benefit: 0.41s concurrent vs 0.70s sequential (1.7x faster)
 
-It is the default isolation level for many relational databases *(NOT DESIGNED BY ORACLE)*, including PostgreSQL, Microsoft SQL Server, and Oracle
+It is the default isolation level for many relational databases *(MARIADB and MySQL being the exception)*, including PostgreSQL, Microsoft SQL Server, and Oracle
 
 **Option 2: Explicit Locking**
 - Use `LOCK TABLES data_table WRITE` (Test 2)
