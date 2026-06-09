@@ -38,7 +38,7 @@ def setup_database():
 
 pool = mysql.connector.pooling.MySQLConnectionPool(pool_name="mypool", pool_size=10, **db_config)
 
-def worker(thread_id, isolation_on):
+def worker(thread_id, isolation_on, use_idiot_code):
     conn = pool.get_connection()
     cursor = conn.cursor()
     
@@ -88,18 +88,19 @@ def worker(thread_id, isolation_on):
                 batch.append(('val', 1, datetime.now(), i))
             
             # Slow so slow awful code
-            #cursor.executemany("""
-                #REPLACE INTO data_table (hash, job_id, date, row_id) 
-                #VALUES (%s, %s, %s, %s)
-            #""", batch)
-
-            cursor.executemany("""
-                INSERT INTO data_table (hash, job_id, date, row_id) 
-                VALUES (%s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE 
-                    hash = VALUES(hash)
-            """, batch)
-        
+            if use_idiot_code:
+                cursor.executemany("""
+                    REPLACE INTO data_table (hash, job_id, date, row_id) 
+                    VALUES (%s, %s, %s, %s)
+                """, batch)
+            else:
+                cursor.executemany("""
+                    INSERT INTO data_table (hash, job_id, date, row_id) 
+                    VALUES (%s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE 
+                        hash = VALUES(hash)
+                """, batch)
+            
         conn.commit()
         print(f"Thread {thread_id}: Success")
         
@@ -122,6 +123,7 @@ def run_test(name, isolation_enabled):
 if __name__ == "__main__":
     print("Testing MySQL 8 with multiple threads and different locking strategies...")
     setup_database()
-    run_test("Test 1 (Table Locking ON)", True)
-    run_test("Test 2 (Table Locking OFF)", False)
-    run_test("Test 3 (Table Locking ON)", True)
+    run_test("Test 1 (Table Locking ON )", True,False)
+    run_test("Test 2 (Table Locking OFF)", False,False)
+    run_test("Test 3 (Table Locking ON REPLACE INTO)", True,True)
+    run_test("Test 4 (Table Locking OFF REPLACE INTO)", False,True)
