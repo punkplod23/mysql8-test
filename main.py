@@ -127,12 +127,12 @@ if __name__ == "__main__":
     print("="*70)
     setup_database()
     tests = [
-        ("Test 1 (LOCK OFF)", False, False, "REPEATABLE READ", 1),
-        ("Test 2 (LOCK ON)", True, False, "REPEATABLE READ", 1),
-        ("Test 3 (READ COMMITTED)", False, False, "READ COMMITTED", 1),
-        ("Test 4 (REPLACE INTO LOCK OFF)", False, True, "REPEATABLE READ", 1),
-        ("Test 5 (REPLACE INTO LOCK ON)", True, True, "REPEATABLE READ", 1),
-        ("Test 6 (LOCK OFF, 5 Retries)", False, False, "REPEATABLE READ", 5)
+        ("Test 1 (NORMAL RUN)", False, False, "REPEATABLE READ", 1),
+        ("Test 2 (TABLE LEVEL LOCKING)", True, False, "REPEATABLE READ", 1),
+        ("Test 3 (ISOLATION LEVEL READ COMMITTED)", False, False, "READ COMMITTED", 1),
+        ("Test 4 (REPLACE INTO, LOCK OFF)", False, True, "REPEATABLE READ", 1),
+        ("Test 5 (REPLACE INTO, LOCK ON)", True, True, "REPEATABLE READ", 1),
+        ("Test 6 (NORMAL RUN WITH 5 Retries)", False, False, "REPEATABLE READ", 5)
     ]
     
     results = []
