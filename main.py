@@ -113,6 +113,7 @@ def run_test(name, isolation_enabled):
     for t in threads: t.join()
 
 if __name__ == "__main__":
+    print("Testing MySQL 8 with multiple threads and different locking strategies...")
     setup_database()
     run_test("Test 1 (Table Locking ON)", True)
     run_test("Test 2 (Table Locking OFF)", False)
