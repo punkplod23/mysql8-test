@@ -32,6 +32,8 @@ Testing various strategies to handle concurrent writes and deadlock prevention i
 - Eliminates gap locking, prevents deadlocks
 - Performance: 0.33s (same speed, 100% reliable)
 
+It is the default isolation level for many relational databases *(NOT DESIGNED BY ORACLE)*, including PostgreSQL, Microsoft SQL Server, and Oracle
+
 **Option 2: Explicit Locking**
 - Use `LOCK TABLES data_table WRITE` (Test 2)
 - Serializes writes, guaranteed consistency
