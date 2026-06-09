@@ -38,7 +38,7 @@ def setup_database():
 
 pool = mysql.connector.pooling.MySQLConnectionPool(pool_name="mypool", pool_size=10, **db_config)
 
-def worker(thread_id, lock_tables, use_idiot_code):
+def worker(thread_id, lock_tables, use_idiot_code,isolation_level="REPEATABLE READ"):
     conn = pool.get_connection()
     cursor = conn.cursor()
     
@@ -53,7 +53,7 @@ def worker(thread_id, lock_tables, use_idiot_code):
         # No row-level deadlock can occur because only one thread accesses the table at a time
         # It's a blunt force solution: "if nobody else can touch it, nobody can fight over it"
 
-    cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+    cursor.execute(f"SET SESSION TRANSACTION ISOLATION LEVEL {isolation_level}")
     
     try:
         # We iterate over row_id because 'id' is now managed by MySQL
@@ -113,16 +113,27 @@ def worker(thread_id, lock_tables, use_idiot_code):
         cursor.close()
         conn.close()
 
-def run_test(name, isolation_enabled):
+def run_test(name,  lock_tables, use_idiot_code, isolation_level="REPEATABLE READ"):
     print(f"\n>>> Starting Test: {name}")
-    threads = [threading.Thread(target=worker, args=(i, isolation_enabled)) for i in range(5)]
+    threads = [threading.Thread(target=worker, args=(i, lock_tables, use_idiot_code, isolation_level)) for i in range(5)]
     for t in threads: t.start()
     for t in threads: t.join()
 
 if __name__ == "__main__":
     print("Testing MySQL 8 with multiple threads and different locking strategies...")
     setup_database()
-    run_test("Test 1 (Table Locking ON ODKU)", True,False)
-    run_test("Test 2 (Table Locking OFF ODKU)", False,False)
+    # TESTING WITH LOCKS
+    run_test("Test 1 (Table Locking ON ON DUPLICATE KEY UPDATE)", True, False)
+    run_test("Test 2 (Table Locking OFF ON DUPLICATE KEY UPDATE)", False, False)
+
+    # TESTING WITH REPEATABLE READ ISOLATION LEVEL, increases chances of deadlocks
+    run_test("Test 1 (Table Locking ON ON DUPLICATE KEY UPDATE REPEATABLE READ)", True, False, "REPEATABLE READ")
+    run_test("Test 2 (Table Locking OFF ON DUPLICATE KEY UPDATE REPEATABLE READ)", False, False, "REPEATABLE READ")
+
+    # REALLY SLOW TESTS BELOW, BE CAREFUL REPLACE INTO BAD DOES NOT LOCK
     run_test("Test 3 (Table Locking ON REPLACE INTO)", True,True)
     run_test("Test 4 (Table Locking OFF REPLACE INTO)", False,True)
+
+
+    
+
