@@ -1,6 +1,7 @@
 import mysql.connector
-from mysql.connector import pooling
 import threading
+import time
+import random
 from datetime import datetime
 
 db_config = {
@@ -10,13 +11,16 @@ db_config = {
     "database": "my_database"
 }
 
+# Thread-safe tracking
+results_tracker = []
+results_lock = threading.Lock()
+
 def setup_database():
     conn = mysql.connector.connect(**{k: v for k, v in db_config.items() if k != 'database'})
     cursor = conn.cursor()
     cursor.execute("CREATE DATABASE IF NOT EXISTS my_database")
     cursor.execute("USE my_database")
     cursor.execute("DROP TABLE IF EXISTS data_table")
-    # Added AUTO_INCREMENT to id
     cursor.execute("""
         CREATE TABLE data_table (
             id BIGINT NOT NULL AUTO_INCREMENT,
@@ -28,7 +32,6 @@ def setup_database():
             UNIQUE KEY row_id_idx (row_id)
         ) ENGINE=InnoDB
     """)
-    # Note: With AUTO_INCREMENT, we don't insert 'id'
     for i in range(1, 1001):
         cursor.execute("INSERT INTO data_table (row_id) VALUES (%s)", (i,))
     conn.commit()
@@ -36,104 +39,114 @@ def setup_database():
     conn.close()
     print("Schema created with AUTO_INCREMENT; 1000 rows seeded.")
 
-pool = mysql.connector.pooling.MySQLConnectionPool(pool_name="mypool", pool_size=10, **db_config)
-
-def worker(thread_id, lock_tables, use_idiot_code,isolation_level="REPEATABLE READ"):
-    conn = pool.get_connection()
+def worker(thread_id, lock_tables, use_idiot_code, isolation_level, max_retries):
+    conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
-    
-    if lock_tables:
-        # LLM suggested this as a workaround to avoid deadlocks, but it does not work. It just causes more deadlocks. I guess MySQL's locking is just really bad.
-        #cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-        # https://forums.mysql.com/read.php?22,65113,65113#msg-65113 an actual hack answer WTF
-        cursor.execute("LOCK TABLES data_table WRITE")
-        # Why this garbage hack works: https://dev.mysql.com/doc/refman/8.0/en/lock-tables.html#lock-tables-transaction-interaction
-        # It acquires an exclusive lock on the entire table before any operations
-        # All other threads block and wait for the lock to be released
-        # No row-level deadlock can occur because only one thread accesses the table at a time
-        # It's a blunt force solution: "if nobody else can touch it, nobody can fight over it"
-
-    cursor.execute(f"SET SESSION TRANSACTION ISOLATION LEVEL {isolation_level}")
+    status = "SUCCESS"
     
     try:
-        # We iterate over row_id because 'id' is now managed by MySQL
-        # Define multiple movement patterns
-        patterns = [
-            range(1, 1001, 100),       # Full Forward
-            range(901, -1, -100),      # Full Backward
-            range(1, 501, 100),        # First Half Forward
-            range(901, 401, -100),     # Second Half Backward
-            range(401, 701, 100),      # Middle Block Forward
-            range(601, 301, -100),     # Middle Block Backward
-            range(1, 1001, 200),       # Skip-Step Forward
-            range(901, -1, -200),      # Skip-Step Backward
-            range(201, 801, 100),      # Inner Segment Forward
-            range(701, 101, -100),     # Inner Segment Backward
-            range(1, 201, 100),        # Start Segment
-            range(801, 1001, 100),     # End Segment
-            range(1, 1001, 500),       # Large Jumps Forward
-            range(901, -1, -500)       # Large Jumps Backward
-        ]
+        if lock_tables:
+            cursor.execute("LOCK TABLES data_table WRITE")
+        cursor.execute(f"SET SESSION TRANSACTION ISOLATION LEVEL {isolation_level}")
         
-        # Assign a pattern based on thread_id
+        patterns = [
+            range(1, 1001, 100), range(901, -1, -100), range(1, 501, 100),
+            range(901, 401, -100), range(401, 701, 100), range(601, 301, -100),
+            range(1, 1001, 200), range(901, -1, -200), range(201, 801, 100),
+            range(701, 101, -100), range(1, 201, 100), range(801, 1001, 100),
+            range(1, 1001, 500), range(901, -1, -500)
+        ]
         ranges = patterns[thread_id % len(patterns)]
         
         for start_id in ranges:
-            batch = []
-            for i in range(start_id, start_id + 100):
-                batch.append(('val', 1, datetime.now(), i))
-                # We do NOT include 'id' here.
-                # We identify the row by 'row_id' (our unique key).
-                batch.append(('val', 1, datetime.now(), i))
-            
-            # Slow so slow awful code
-            if use_idiot_code:
-                cursor.executemany("""
-                    REPLACE INTO data_table (hash, job_id, date, row_id) 
-                    VALUES (%s, %s, %s, %s)
-                """, batch)
-            else:
-                cursor.executemany("""
-                    INSERT INTO data_table (hash, job_id, date, row_id) 
-                    VALUES (%s, %s, %s, %s)
-                    ON DUPLICATE KEY UPDATE 
-                        hash = VALUES(hash)
-                """, batch)
-            
-        conn.commit()
-        print(f"Thread {thread_id}: Success")
+            batch_success = False
+            for attempt in range(max_retries):
+                try:
+                    batch = []
+                    for i in range(start_id, start_id + 100):
+                        batch.append(('val', 1, datetime.now(), i))
+                    
+                    if use_idiot_code:
+                        cursor.executemany("REPLACE INTO data_table (hash, job_id, date, row_id) VALUES (%s, %s, %s, %s)", batch)
+                    else:
+                        cursor.executemany("INSERT INTO data_table (hash, job_id, date, row_id) VALUES (%s, %s, %s, %s) ON DUPLICATE KEY UPDATE hash = VALUES(hash)", batch)
+                    
+                    conn.commit()
+                    batch_success = True
+                    break 
+                except mysql.connector.Error as err:
+                    conn.rollback()
+                    if err.errno in (1213, 1205) and attempt < max_retries - 1:
+                        time.sleep((0.1 * (2 ** attempt)) + (random.random() * 0.1))
+                    else:
+                        raise err
+            if not batch_success:
+                status = "FAILED"
+                break
         
     except mysql.connector.Error as err:
+        status = "FAILED"
         if err.errno == 1213:
-            print(f"!!! DEADLOCK DETECTED on Thread {thread_id} !!!")
-        else:
-            print(f"Thread {thread_id}: Error {err.errno}")
-        conn.rollback()
+            print(f"!!! DEADLOCK DETECTED on thread {thread_id} !!!")
     finally:
+        if lock_tables:
+            cursor.execute("UNLOCK TABLES")
         cursor.close()
         conn.close()
+        with results_lock:
+            results_tracker.append(status)
 
-def run_test(name,  lock_tables, use_idiot_code, isolation_level="REPEATABLE READ"):
+def run_test(name, lock_tables, use_idiot_code, isolation_level, max_retries):
+    global results_tracker
+    results_tracker = []
     print(f"\n>>> Starting Test: {name}")
-    threads = [threading.Thread(target=worker, args=(i, lock_tables, use_idiot_code, isolation_level)) for i in range(5)]
+    
+    threads = [threading.Thread(target=worker, args=(i, lock_tables, use_idiot_code, isolation_level, max_retries)) for i in range(14)]
     for t in threads: t.start()
     for t in threads: t.join()
+    
+    failed_count = results_tracker.count("FAILED")
+    return failed_count
 
 if __name__ == "__main__":
-    print("Testing MySQL 8 with multiple threads and different locking strategies...")
+    print("="*70)
+    print("MYSQL CONCURRENCY AND DEADLOCK TEST SUITE")
+    print("="*70)
+    print("Objective: Evaluate performance and reliability of 14 concurrent ")
+    print("threads performing batch updates (100 rows/batch) on a shared table.")
+    print("\nMetrics tracked:")
+    print(" - Performance: Wall-clock time taken to complete 1,400 batch writes.")
+    print(" - Reliability: Deadlock frequency and transaction success rates.")
+    print("="*70)
+    print("Strategies tested:")
+    print(" 1. Standard (No Locks, REPEATABLE READ)")
+    print(" 2. Table-Level Locking (Exclusive write access)")
+    print(" 3. Relaxed Consistency (READ COMMITTED)")
+    print(" 4. Destructive Writes (REPLACE INTO vs INSERT IGNORE)")
+    print(" 5. Resilient Retries (Exponential backoff on conflict)")
+    print("="*70)
     setup_database()
-    # TESTING WITH LOCKS
-    run_test("Test 1 (Table Locking ON ON DUPLICATE KEY UPDATE)", True, False)
-    run_test("Test 2 (Table Locking OFF ON DUPLICATE KEY UPDATE)", False, False)
-
-    # TESTING WITH REPEATABLE READ ISOLATION LEVEL, increases chances of deadlocks
-    run_test("Test 1 (Table Locking ON ON DUPLICATE KEY UPDATE REPEATABLE READ)", True, False, "REPEATABLE READ")
-    run_test("Test 2 (Table Locking OFF ON DUPLICATE KEY UPDATE REPEATABLE READ)", False, False, "REPEATABLE READ")
-
-    # REALLY SLOW TESTS BELOW, BE CAREFUL REPLACE INTO BAD DOES NOT LOCK
-    run_test("Test 3 (Table Locking ON REPLACE INTO)", True,True)
-    run_test("Test 4 (Table Locking OFF REPLACE INTO)", False,True)
-
-
+    tests = [
+        ("Test 1 (LOCK OFF)", False, False, "REPEATABLE READ", 1),
+        ("Test 2 (LOCK ON)", True, False, "REPEATABLE READ", 1),
+        ("Test 3 (READ COMMITTED)", False, False, "READ COMMITTED", 1),
+        ("Test 4 (REPLACE INTO LOCK OFF)", False, True, "REPEATABLE READ", 1),
+        ("Test 5 (REPLACE INTO LOCK ON)", True, True, "REPEATABLE READ", 1),
+        ("Test 6 (LOCK OFF, 5 Retries)", False, False, "REPEATABLE READ", 5)
+    ]
     
+    results = []
+    for name, lock, idiot, iso, retries in tests:
+        start_time = time.time()
+        fails = run_test(name, lock, idiot, iso, retries)
+        duration = time.time() - start_time
+        results.append((name, duration, fails))
+        print(f"--- {name} finished in {duration:.2f} seconds ---")
 
+    print("\n" + "="*70)
+    print(f"{'TEST NAME':<35} | {'TIME':<8} | {'STATUS'}")
+    print("-" * 70)
+    for name, dur, fails in results:
+        status = "PASSED" if fails == 0 else f"FAILED ({fails} deadlocks)"
+        print(f"{name:<35} | {dur:>6.2f}s | {status}")
+    print("="*70)
