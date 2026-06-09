@@ -123,7 +123,7 @@ def run_test(name, isolation_enabled):
 if __name__ == "__main__":
     print("Testing MySQL 8 with multiple threads and different locking strategies...")
     setup_database()
-    run_test("Test 1 (Table Locking ON )", True,False)
-    run_test("Test 2 (Table Locking OFF)", False,False)
+    run_test("Test 1 (Table Locking ON ODKU)", True,False)
+    run_test("Test 2 (Table Locking OFF ODKU)", False,False)
     run_test("Test 3 (Table Locking ON REPLACE INTO)", True,True)
     run_test("Test 4 (Table Locking OFF REPLACE INTO)", False,True)
