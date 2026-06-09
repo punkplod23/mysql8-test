@@ -38,12 +38,12 @@ def setup_database():
 
 pool = mysql.connector.pooling.MySQLConnectionPool(pool_name="mypool", pool_size=10, **db_config)
 
-def worker(thread_id, isolation_on, use_idiot_code):
+def worker(thread_id, lock_tables, use_idiot_code):
     conn = pool.get_connection()
     cursor = conn.cursor()
     
-    if isolation_on:
-        # LLM suggested this as a workaround to avoid deadlocks, bbut it does not work. It just causes more deadlocks. I guess MySQL's locking is just really bad.
+    if lock_tables:
+        # LLM suggested this as a workaround to avoid deadlocks, but it does not work. It just causes more deadlocks. I guess MySQL's locking is just really bad.
         #cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         # https://forums.mysql.com/read.php?22,65113,65113#msg-65113 an actual hack answer WTF
         cursor.execute("LOCK TABLES data_table WRITE")
@@ -53,9 +53,8 @@ def worker(thread_id, isolation_on, use_idiot_code):
         # No row-level deadlock can occur because only one thread accesses the table at a time
         # It's a blunt force solution: "if nobody else can touch it, nobody can fight over it"
 
-
-    else:
-        cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+    cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+    
     try:
         # We iterate over row_id because 'id' is now managed by MySQL
         # Define multiple movement patterns
