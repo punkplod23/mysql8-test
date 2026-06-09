@@ -1,6 +1,6 @@
 # MySQL InnoDB Concurrency & Deadlock Test Suite
 
-Testing various strategies to handle concurrent writes and deadlock prevention in MySQL 8.4 with InnoDB.
+Testing various strategies to handle concurrent writes and deadlock prevention in MySQL 8.4 with InnoDB.This is built to lock from the thread control.
 
 ## Latest Test Run
 
@@ -83,3 +83,28 @@ The test will:
 Runs automatically on push to `main` or via manual workflow dispatch.
 
 See `.github/workflows/mysql-test.yml` for CI/CD configuration.
+
+# FYI
+Why Larger Datasets Increase Deadlock Risk
+1. Larger Gap Lock Ranges
+Your current test uses only 1,000 rows. With REPEATABLE READ isolation:
+
+Gap locks expand across unmatched ranges in UNIQUE KEY constraints
+Larger tables = wider gaps = more threads hitting the same locked regions
+More overlap = higher collision probability
+2. More Concurrent Contention Points
+Current test: 14 threads × ~100 row batches across 1,000 rows = heavy overlap
+
+Threads 0-10 consistently deadlock because they're hitting the same 100-row ranges
+On a 1M+ row table with similar thread count, you'd have:
+MORE spread-out access patterns initially
+BUT more total lock acquisitions = exponentially more conflict opportunities
+Eventually same bottleneck effect but with higher latency
+3. Lock Wait Timeouts Increase
+Larger transactions take longer (more rows to process)
+Default innodb_lock_wait_timeout is 50 seconds
+More time = higher chance of circular waits forming
+4. Buffer Pool Pressure
+Large datasets cause page eviction
+Page re-reads trigger new locks
+InnoDB's lock escalation becomes more aggressive
