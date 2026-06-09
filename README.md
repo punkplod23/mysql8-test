@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-Testing some INNODB stratergies
-=======
 # MySQL InnoDB Concurrency & Deadlock Test Suite
 
 Testing various strategies to handle concurrent writes and deadlock prevention in MySQL 8.4 with InnoDB.
@@ -13,12 +10,13 @@ Testing various strategies to handle concurrent writes and deadlock prevention i
 
 | Test | Strategy | Status | Deadlocks | Duration |
 |------|----------|--------|-----------|----------|
-| Test 1 | Standard (REPEATABLE READ, no locks) | ❌ FAILED | 8 | 0.32s |
-| Test 2 | Table-Level Locking (WRITE) | ✅ PASSED | 0 | 0.38s |
-| Test 3 | READ COMMITTED isolation | ✅ PASSED | 0 | 0.33s |
-| Test 4 | REPLACE INTO (no locks) | ❌ FAILED | 8 | 1.12s |
-| Test 5 | REPLACE INTO + table locks | ✅ PASSED | 0 | 2.39s |
-| Test 6 | REPEATABLE READ + retry logic | ✅ PASSED | 0 | 0.66s |
+| Test 1 | Standard (REPEATABLE READ, no locks) | ❌ FAILED | 10 | 0.32s |
+| Test 2 | Table-Level Locking (WRITE) | ✅ PASSED | 0 | 0.44s |
+| Test 3 | READ COMMITTED isolation | ✅ PASSED | 0 | 0.41s |
+| Test 4 | REPLACE INTO (no locks) | ❌ FAILED | 12 | 0.94s |
+| Test 5 | REPLACE INTO + table locks | ✅ PASSED | 0 | 2.35s |
+| Test 6 | REPEATABLE READ + retry logic | ✅ PASSED | 0 | 0.48s |
+| Test 7 | Single-threaded baseline | ✅ PASSED | 0 | 0.05s (0.70s × 14 threads) |
 
 ## Root Cause Analysis
 
@@ -33,19 +31,22 @@ Testing various strategies to handle concurrent writes and deadlock prevention i
 **Option 1: Relaxed Isolation (RECOMMENDED)**
 - Use `READ COMMITTED` isolation (Test 3)
 - Eliminates gap locking, prevents deadlocks
-- Performance: 0.33s (same speed, 100% reliable)
+- Performance: 0.41s (same speed as single-threaded, 100% reliable)
+- Concurrency benefit: 0.41s concurrent vs 0.70s sequential (1.7x faster)
 
 It is the default isolation level for many relational databases *(NOT DESIGNED BY ORACLE)*, including PostgreSQL, Microsoft SQL Server, and Oracle
 
 **Option 2: Explicit Locking**
 - Use `LOCK TABLES data_table WRITE` (Test 2)
 - Serializes writes, guaranteed consistency
-- Performance: 0.38-2.39s (6x slower, trade-off acceptable for safety)
+- Performance: 0.44s (acceptable trade-off for safety)
+- Concurrency benefit: 0.44s concurrent vs 0.70s sequential (1.6x faster)
 
 **Option 3: Retry Logic (BALANCED)**
 - Implement exponential backoff on deadlock detection (Test 6)
 - Transient failures automatically resolved
-- Performance: 0.66s (faster than explicit locking, graceful degradation)
+- Performance: 0.48s (faster than explicit locking, graceful degradation)
+- Concurrency benefit: 0.48s concurrent vs 0.70s sequential (1.5x faster)
 
 ## How to Run
 
@@ -59,7 +60,7 @@ python main.py
 
 The test will:
 1. Spin up a temporary MySQL 8.4 container
-2. Execute 6 concurrent write tests with different strategies
+2. Execute 7 concurrent write tests with different strategies
 3. Report pass/fail status, deadlock count, and timing
 
 ## Test Configuration
@@ -69,10 +70,10 @@ The test will:
 - **Total operations:** 1,400 batch writes (14 threads × ~100 batches each)
 - **Isolation levels:** REPEATABLE READ, READ COMMITTED
 - **Locking strategies:** None, table-level, retry backoff
+- **Baseline:** Single-threaded sequential execution (0.05s per thread = 0.70s total)
 
 ## GitHub Actions Workflow
 
 Runs automatically on push to `main` or via manual workflow dispatch.
 
 See `.github/workflows/mysql-test.yml` for CI/CD configuration.
->>>>>>> 500a6bef9958a3a41b365cb1e711cbc36caa3bcc
